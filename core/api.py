@@ -31,7 +31,7 @@ class AuthBearer(HttpBearer):
             pass
 
 
-api = NinjaAPI(version="1.0.0", auth=AuthBearer())
+api = NinjaAPI(title="Favorite Movies API", version="1.0.0", auth=AuthBearer())
 
 
 @api.get("/test_auth")

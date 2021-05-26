@@ -10,6 +10,11 @@ Django = "^3.2.3"
 django-ninja = "^0.13.0"
 pydantic = "^1.8.2"
 PyJWT = "^2.1.0"
+python-decouple = "^3.4"
+dj-database-url = "^0.5.0"
+dj-static = "^0.0.6"
+gunicorn = {version = "^20.1.0", extras = ["production"]}
+psycopg2-binary = {version = "^2.8.6", extras = ["production"]}
 
 [tool.poetry.dev-dependencies]
 pynvim = "^0.4.3"
