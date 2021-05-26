@@ -1,64 +1,86 @@
 from django.contrib.auth.hashers import make_password, check_password
 
 from pydantic import Field
+import jwt
 
-from ninja import NinjaAPI, Schema
+from ninja import NinjaAPI
 from ninja.orm import create_schema
 from ninja.errors import HttpError
+from ninja.security import HttpBearer
+from ninja.responses import codes_4xx
 
+from django.conf.global_settings import SECRET_KEY
 from .models import User
-
-api = NinjaAPI()
-
-
-
-@api.get("/hello")
-def hello(request):
-    return "Hello, world"
-
-
-BaseCreateUserScheme = create_schema(User, exclude=['id'])
-class CreateUserScheme(BaseCreateUserScheme):
-    password: str = Field(min_length=8)
-
-PublicUserScheme = create_schema(User, fields=['name', 'email'])
-UserCredentialsScheme = create_schema(User, fields=['email', 'password'])
-    
+from .schemas import (
+    BaseCreateUserScheme,
+    CreateUserScheme,
+    PublicUserScheme,
+    UserCredentialsScheme,
+    TokenScheme,
+    MessageResponseScheme,
+    RecoveryPasswordRequestScheme,
+)
 
 
-@api.post("/users")
+class AuthBearer(HttpBearer):
+    def authenticate(self, request, token):
+        try:
+            jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            return token
+        except jwt.ExpiredSignatureError:
+            pass
+
+
+api = NinjaAPI(version="1.0.0", auth=AuthBearer())
+
+
+@api.get("/test_auth")
+def auth_route(request):
+    return "entrou"
+
+
+@api.post("/users", response=PublicUserScheme, auth=None)
 def create_user(request, user: CreateUserScheme) -> PublicUserScheme:
-    created_user = User(**{
-        **user.dict(),
-        "password": make_password(user.password)
-    })
+    created_user = User(**{**user.dict(), "password": make_password(user.password)})
     created_user.save()
     return PublicUserScheme(**created_user.__dict__)
 
-@api.get("/users")
-def list_users(request):
-    # TODO: REMOVE
-    """
-    return [
-        PublicUserScheme(**user.__dict__)
-        for user in User.objects.all()
-    ]
-    """
-    return [
-        BaseCreateUserScheme(**user.__dict__)
-        for user in User.objects.all()
-    ]
 
-@api.post("/auth/generateToken")
+@api.post(
+    "/auth/generate-token",
+    auth=None,
+    response={201: TokenScheme, frozenset({401, 403}): MessageResponseScheme},
+)
 def generate_token(request, credentials: UserCredentialsScheme):
-    user = User.objects.filter(email=credentials.email)
-    if not user:
-        raise HttpError(404, "User not found")
+    users = User.objects.filter(email=credentials.email)
+    if not users:
+        return 404, MessageResponseScheme(message="User not found")
 
-    is_authenticated = check_password(credentials.password, user[0].password)
+    user = users[0]
+    is_authenticated = check_password(credentials.password, user.password)
 
     if not is_authenticated:
-        raise HttpError(403, "Invalid password")
+        return 403, MessageResponseScheme(message="Invalid password")
 
-    return "some_very_secure_token"
+    return 201, {
+        "token": jwt.encode({"user_id": user.id}, SECRET_KEY, algorithm="HS256")
+    }
 
+
+@api.post(
+    "/auth/recovery-password",
+    response={frozenset({200, 400, 404}): MessageResponseScheme},
+)
+def recovery_password(request, payload: RecoveryPasswordRequestScheme):
+    users = User.objects.filter(email=payload.email)
+    if not users:
+        return 404, MessageResponseScheme(message="User not found")
+
+    user = users[0]
+    if user.recovery_answer != payload.recovery_answer:
+        return 400, MessageResponseScheme(message="Wrong answer")
+
+    user.password = make_password(payload.new_password)
+    user.save()
+
+    return 200, MessageResponseScheme(message="Password reseted")
