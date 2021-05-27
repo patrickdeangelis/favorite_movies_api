@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import Field
 
 from ninja import Schema
@@ -28,3 +29,18 @@ class TokenSchema(Schema):
 
 class MessageResponseSchema(Schema):
     message: str
+
+
+class MovieSchema(Schema):
+    title: str
+    kind: str
+    year: int
+    cover_url: str
+    imdb_id: str
+
+
+class MovieDetailsSchema(MovieSchema):
+    rating: float
+    genres: List[str]
+    directors: List[str]
+    synopsis: str
