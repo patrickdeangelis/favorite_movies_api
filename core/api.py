@@ -29,6 +29,8 @@ from .schemas import (
     RecoveryQuestionSchema,
     MovieSchema,
     MovieDetailsSchema,
+    UpdateUserRequestSchema,
+    UserSchema,
 )
 
 
@@ -49,17 +51,45 @@ def auth_route(request):
     return "entrou | ESTA ROTA SERÁ DESATIVADA"
 
 
-@api.post("/users", response=PublicUserSchema, auth=None)
+@api.post("/users", response=PublicUserSchema, auth=None, tags=["User"])
 def create_user(request, user: CreateUserSchema):
     created_user = User(**{**user.dict(), "password": make_password(user.password)})
     created_user.save()
     return PublicUserSchema(**created_user.__dict__)
 
 
+@api.get("/users", response=UserSchema, tags=["User"])
+def get_user(request):
+    """
+    Get authenticated user data
+    """
+    user_id = request.auth["user_id"]
+    user = User.objects.get(pk=user_id)
+    return UserSchema(**user.__dict__)
+
+
+@api.patch(
+    "/users", response={200: UserSchema, 400: MessageResponseSchema}, tags=["User"]
+)
+def update_user(request, payload: UpdateUserRequestSchema):
+    """
+    Update authenticated user data
+    """
+    try:
+        user_id = request.auth["user_id"]
+        payload.encrypt_password()
+        User.objects.filter(pk=user_id).update(**payload.get_not_none_fields_dict())
+        user = User.objects.get(pk=user_id)
+        return 200, UserSchema(**user.__dict__)
+    except Exception:
+        return 400, MessageResponseSchema(message="We had a problem, on updating user")
+
+
 @api.post(
     "/auth/generate-token",
     auth=None,
     response={201: TokenSchema, frozenset({403, 404}): MessageResponseSchema},
+    tags=["Auth"],
 )
 def generate_token(request, credentials: UserCredentialsSchema):
     users = User.objects.filter(email=credentials.email)
@@ -85,6 +115,7 @@ def generate_token(request, credentials: UserCredentialsSchema):
     "/auth/recovery-password",
     auth=None,
     response={frozenset({200, 400, 404}): MessageResponseSchema},
+    tags=["Auth"],
 )
 def recovery_password(request, payload: RecoveryPasswordRequestSchema):
     users = User.objects.filter(email=payload.email)
@@ -101,10 +132,11 @@ def recovery_password(request, payload: RecoveryPasswordRequestSchema):
     return 200, MessageResponseSchema(message="Password reseted")
 
 
-@api.get(
+@api.post(
     "/auth/get-recovery-question",
     auth=None,
     response={200: RecoveryQuestionSchema, 404: MessageResponseSchema},
+    tags=["Auth"],
 )
 def get_recovery_question(request, payload: GetRecoveryQuestionRequestSchema):
     users = User.objects.filter(email=payload.email)
@@ -116,7 +148,11 @@ def get_recovery_question(request, payload: GetRecoveryQuestionRequestSchema):
     return RecoveryQuestionSchema(recovery_question=user.recovery_question)
 
 
-@api.get("/movies", response={200: List[MovieSchema], 400: MessageResponseSchema})
+@api.get(
+    "/movies",
+    response={200: List[MovieSchema], 400: MessageResponseSchema},
+    tags=["Movies"],
+)
 def find_movies(request, name="", saved=False):
     try:
         if saved:
@@ -170,6 +206,7 @@ def find_movies(request, name="", saved=False):
 @api.get(
     "/movies/{imdb_id}",
     response={200: MovieDetailsSchema, frozenset({400, 404}): MessageResponseSchema},
+    tags=["Movies"],
 )
 def get_movie(request, imdb_id: str):
     try:
@@ -190,8 +227,12 @@ def get_movie(request, imdb_id: str):
 @api.post(
     "/movies/{imdb_id}/save",
     response={frozenset({200, 400, 404}): MessageResponseSchema},
+    tags=["Movies"],
 )
 def save_movie(request, imdb_id: str):
+    """
+    Add movie to your saved movies list
+    """
     try:
         user_id = request.auth["user_id"]
         user = User.objects.get(pk=user_id)

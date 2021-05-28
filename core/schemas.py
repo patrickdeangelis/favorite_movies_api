@@ -1,6 +1,7 @@
-from typing import List
-from pydantic import Field
+from typing import List, Optional
 
+from django.contrib.auth.hashers import make_password
+from pydantic import Field
 from ninja import Schema
 from ninja.orm import create_schema
 from imdb import Movie
@@ -9,6 +10,7 @@ from .models import User
 
 BaseCreateUserSchema = create_schema(User, exclude=["id"])
 PublicUserSchema = create_schema(User, fields=["name", "email"])
+UserSchema = create_schema(User, exclude=["id", "password", "recovery_answer"])
 UserCredentialsSchema = create_schema(User, fields=["email", "password"])
 GetRecoveryQuestionRequestSchema = create_schema(User, fields=["email"])
 RecoveryQuestionSchema = create_schema(User, fields=["recovery_question"])
@@ -58,3 +60,17 @@ class MovieDetailsSchema(MovieSchema):
             synopsis=api_movie["synopsis"][0],
             imdb_id=api_movie.getID(),
         )
+
+
+class UpdateUserRequestSchema(Schema):
+    name: Optional[str]
+    email: Optional[str]
+    password: Optional[str]
+    recovery_question: Optional[str]
+    recovery_answer: Optional[str]
+
+    def get_not_none_fields_dict(self):
+        return {k: v for k, v in self.dict().items() if v}
+
+    def encrypt_password(self):
+        self.password = make_password(self.password)
