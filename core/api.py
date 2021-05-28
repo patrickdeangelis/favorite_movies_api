@@ -16,7 +16,7 @@ from imdb import IMDb
 
 from django.conf.global_settings import SECRET_KEY
 from .models import User, Movie, SavedMovie
-from .services import get_movie_detailed
+from .services import get_movie_detailed, OnlySupportMovieException
 from .schemas import (
     BaseCreateUserSchema,
     CreateUserSchema,
@@ -116,15 +116,26 @@ def get_recovery_question(request, payload: GetRecoveryQuestionRequestSchema):
     return RecoveryQuestionSchema(recovery_question=user.recovery_question)
 
 
-# add movies search
 @api.get("/movies", response={200: List[MovieSchema], 400: MessageResponseSchema})
-def find_movies(request, name=""):
-    if not name:
-        return []
-
+def find_movies(request, name="", saved=False):
     try:
+        if saved:
+            user_id = request.auth["user_id"]
+            user = User.objects.get(pk=user_id)
+            movies_id = list(
+                SavedMovie.objects.filter(user=user).values_list("movie_id", flat=True)
+            )
+            movies = Movie.objects.filter(pk__in=movies_id)
+            if name:
+                movies = movies.filter(title__icontains=name)
+
+            return [MovieSchema(**m.__dict__) for m in movies]
+
+        if not name:
+            return []
+
         movies = Movie.objects.filter(title__icontains=name)
-        if movies and movies.count() >= 10:
+        if movies:
             return [MovieSchema(**m.__dict__) for m in movies]
 
         imdb_api = IMDb()
@@ -157,42 +168,20 @@ def find_movies(request, name=""):
 
 
 @api.get(
-    "/movies/{imdb_id}", response={200: MovieDetailsSchema, 400: MessageResponseSchema}
+    "/movies/{imdb_id}",
+    response={200: MovieDetailsSchema, frozenset({400, 404}): MessageResponseSchema},
 )
 def get_movie(request, imdb_id: str):
     try:
-        db_movie = Movie.objects.get(imdb_id=imdb_id)
-        if db_movie and db_movie.rating:
+        db_movie = get_movie_detailed(imdb_id, verify_detailed=True)
+        if db_movie:
             return MovieDetailsSchema(**db_movie.__dict__)
 
-        imdb_api = IMDb()
-        movie = imdb_api.get_movie(imdb_id)
-
-        if movie["kind"] != "movie":
-            return 400, MessageResponseSchema(message="We only support movies")
-
-        movie_detail = MovieDetailsSchema(
-            title=movie["title"],
-            kind=movie["kind"],
-            year=movie["year"],
-            cover_url=movie["full-size cover url"],
-            rating=movie["rating"],
-            genres=movie["genre"],
-            directors=[d["name"] for d in movie["director"]],
-            synopsis=movie["synopsis"][0],
-            imdb_id=movie.getID(),
-        )
-
-        if db_movie:
-            Movie.objects.filter(imdb_id=imdb_id).update(**movie_detail.dict())
-        else:
-            db_movie = Movie(**movie_detail.dict())
-            db_movie.save()
-
-        return movie_detail
-    except ObjectDoesNotExist:
-        return MessageResponseSchema(message="Movie not found")
-    except Exception:
+        return 404, MessageResponseSchema(message="Movie not found")
+    except OnlySupportMovieException:
+        return 400, MessageResponseSchema(message="We only support movies")
+    except Exception as err:
+        print(err)
         return 400, MessageResponseSchema(
             message="We had a problem, it's not was possible to get the movie"
         )
@@ -214,6 +203,8 @@ def save_movie(request, imdb_id: str):
         saved_movie.save()
 
         return MessageResponseSchema(message="Movie saved to your list")
+    except OnlySupportMovieException:
+        return 400, MessageResponseSchema(message="We only support movies")
     except Exception:
         return 400, MessageResponseSchema(
             message="We had a problem, it's not was possible to get the movie"
