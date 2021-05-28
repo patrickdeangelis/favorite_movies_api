@@ -3,6 +3,7 @@ from pydantic import Field
 
 from ninja import Schema
 from ninja.orm import create_schema
+from imdb import Movie
 
 from .models import User
 
@@ -44,3 +45,16 @@ class MovieDetailsSchema(MovieSchema):
     genres: List[str]
     directors: List[str]
     synopsis: str
+
+    def from_api_movie(cls, api_movie: Movie) -> "MovieDetailsSchema":
+        return MovieDetailsSchema(
+            title=api_movie["title"],
+            kind=api_movie["kind"],
+            year=api_movie["year"],
+            cover_url=api_movie["full-size cover url"],
+            rating=api_movie["rating"],
+            genres=api_movie["genre"],
+            directors=[d["name"] for d in api_movie["director"]],
+            synopsis=api_movie["synopsis"][0],
+            imdb_id=api_movie.getID(),
+        )

@@ -15,7 +15,8 @@ from ninja.responses import codes_4xx
 from imdb import IMDb
 
 from django.conf.global_settings import SECRET_KEY
-from .models import User, Movie
+from .models import User, Movie, SavedMovie
+from .services import get_movie_detailed
 from .schemas import (
     BaseCreateUserSchema,
     CreateUserSchema,
@@ -34,8 +35,8 @@ from .schemas import (
 class AuthBearer(HttpBearer):
     def authenticate(self, request, token):
         try:
-            jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            return token
+            decoded_token = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            return decoded_token
         except jwt.ExpiredSignatureError:
             pass
 
@@ -58,7 +59,7 @@ def create_user(request, user: CreateUserSchema):
 @api.post(
     "/auth/generate-token",
     auth=None,
-    response={201: TokenSchema, frozenset({401, 403}): MessageResponseSchema},
+    response={201: TokenSchema, frozenset({403, 404}): MessageResponseSchema},
 )
 def generate_token(request, credentials: UserCredentialsSchema):
     users = User.objects.filter(email=credentials.email)
@@ -72,8 +73,11 @@ def generate_token(request, credentials: UserCredentialsSchema):
         return 403, MessageResponseSchema(message="Invalid password")
 
     return 201, {
-        "token": jwt.encode({"user_id": user.id}, SECRET_KEY, algorithm="HS256"),
-        "iat": datetime.utcnow(),
+        "token": jwt.encode(
+            {"user_id": user.id, "iat": datetime.utcnow()},
+            SECRET_KEY,
+            algorithm="HS256",
+        ),
     }
 
 
@@ -188,6 +192,28 @@ def get_movie(request, imdb_id: str):
         return movie_detail
     except ObjectDoesNotExist:
         return MessageResponseSchema(message="Movie not found")
+    except Exception:
+        return 400, MessageResponseSchema(
+            message="We had a problem, it's not was possible to get the movie"
+        )
+
+
+@api.post(
+    "/movies/{imdb_id}/save",
+    response={frozenset({200, 400, 404}): MessageResponseSchema},
+)
+def save_movie(request, imdb_id: str):
+    try:
+        user_id = request.auth["user_id"]
+        user = User.objects.get(pk=user_id)
+        movie = get_movie_detailed(imdb_id)
+        if not movie:
+            return 404, MessageResponseSchema(message="Movie not found")
+
+        saved_movie = SavedMovie(user=user, movie=movie)
+        saved_movie.save()
+
+        return MessageResponseSchema(message="Movie saved to your list")
     except Exception:
         return 400, MessageResponseSchema(
             message="We had a problem, it's not was possible to get the movie"
