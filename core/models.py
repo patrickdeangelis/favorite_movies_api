@@ -19,3 +19,8 @@ class Movie(models.Model):
     genres = models.JSONField(null=True)
     directors = models.JSONField(null=True)
     synopsis = models.TextField(blank=True)
+
+
+class SavedMovie(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    movie = models.ForeignKey(Movie, on_delete=models.CASCADE)
