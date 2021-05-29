@@ -249,4 +249,30 @@ def save_movie(request, imdb_id: str):
     except Exception:
         return 400, MessageResponseSchema(
             message="We had a problem, it's not was possible to get the movie"
-        )
+
+
+@api.post(
+    "/movies/{imdb_id}/remove-from-saved",
+    response={frozenset({200, 400, 404}): MessageResponseSchema},
+    tags=["Movies"],
+)
+def save_movie(request, imdb_id: str):
+    """
+    Remove a movie from your saved movies list
+    """
+    try:
+        user_id = request.auth["user_id"]
+        user = User.objects.get(pk=user_id)
+        movie = get_movie_detailed(imdb_id)
+        if not movie:
+            return 404, MessageResponseSchema(message="Movie not found")
+
+        saved_movie = SavedMovie.objects.get(user=user, movie=movie)
+        saved_movie.delete()
+
+        return MessageResponseSchema(message="Movie saved to your list")
+    except OnlySupportMovieException:
+        return 400, MessageResponseSchema(message="We only support movies")
+    except Exception:
+        return 400, MessageResponseSchema(
+            message="We had a problem, it's not was possible to get the movie"
